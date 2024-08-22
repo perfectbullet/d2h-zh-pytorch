@@ -2087,8 +2087,8 @@ class VOCSegDataset(torch.utils.data.Dataset):
 
     def filter(self, imgs):
         return [img for img in imgs if (
-        img.shape[1] >= self.crop_size[0] and
-        img.shape[2] >= self.crop_size[1])]
+                img.shape[1] >= self.crop_size[0] and
+                img.shape[2] >= self.crop_size[1])]
 
     def __getitem__(self, idx):
         feature, label = voc_rand_crop(self.features[idx], self.labels[idx],
@@ -2590,20 +2590,20 @@ def _pad_bert_inputs(examples, max_len, vocab):
     for (token_ids, pred_positions, mlm_pred_label_ids, segments,
          is_next) in examples:
         all_token_ids.append(torch.tensor(token_ids + [vocab['<pad>']] * (
-        max_len - len(token_ids)), dtype=torch.long))
+                max_len - len(token_ids)), dtype=torch.long))
         all_segments.append(torch.tensor(segments + [0] * (
-        max_len - len(segments)), dtype=torch.long))
+                max_len - len(segments)), dtype=torch.long))
         # valid_lens不包括'<pad>'的计数
         valid_lens.append(torch.tensor(len(token_ids), dtype=torch.float32))
         all_pred_positions.append(torch.tensor(pred_positions + [0] * (
-        max_num_mlm_preds - len(pred_positions)), dtype=torch.long))
+                max_num_mlm_preds - len(pred_positions)), dtype=torch.long))
         # 填充词元的预测将通过乘以0权重在损失中过滤掉
         all_mlm_weights.append(
             torch.tensor([1.0] * len(mlm_pred_label_ids) + [0.0] * (
-            max_num_mlm_preds - len(pred_positions)),
+                    max_num_mlm_preds - len(pred_positions)),
                          dtype=torch.float32))
         all_mlm_labels.append(torch.tensor(mlm_pred_label_ids + [0] * (
-        max_num_mlm_preds - len(mlm_pred_label_ids)), dtype=torch.long))
+                max_num_mlm_preds - len(mlm_pred_label_ids)), dtype=torch.long))
         nsp_labels.append(torch.tensor(is_next, dtype=torch.long))
     return (all_token_ids, all_segments, valid_lens, all_pred_positions,
             all_mlm_weights, all_mlm_labels, nsp_labels)

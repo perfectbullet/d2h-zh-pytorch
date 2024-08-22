@@ -41,6 +41,7 @@ class AdditiveAttention(nn.Module):
         queries_new_us = queries_new.unsqueeze(2)
         keys_new_us = keys_new.unsqueeze(1)
         features = queries_new_us + keys_new_us
+        # features_np = features.detach().numpy()
         features = torch.tanh(features)
         # self.w_v仅有一个输出，因此从形状中移除最后那个维度。   self.w_v 是 加性球和后的结果，在输入单层 MLP 中，w_v 就是那个 MLP
         # scores 的形状：(batch_size，查询的个数，“键-值”对的个数), scores注意力分数， 他是 key 和 query 做加性注意力的产物
@@ -49,13 +50,13 @@ class AdditiveAttention(nn.Module):
         self.attention_weights = masked_softmax(scores, valid_lens)
         # values的形状：(batch_size，“键－值”对的个数，值的长度)
         # self.attention_weights 的形状：(batch_size，查询的个数，“键-值”对的个数)
-        attention_gather = torch.bmm(self.dropout(self.attention_weights), values)
+        attention_gather = torch.bmm(self.attention_weights, values)
+        # attention_weights_np = self.attention_weights.detach().numpy()
         return attention_gather
 
 
 if __name__ == '__main__':
-    # masked_softmax(torch.rand(2, 2, 4), torch.tensor([2, 3]))
-    queries, keys = torch.normal(0, 1, (2, 3, 20)), torch.ones((2, 10, 2))
+    queries, keys = torch.normal(0, 1, (2, 1, 20)), torch.ones((2, 10, 2))
     # values的小批量，两个值矩阵是相同的
     values = torch.arange(40, dtype=torch.float32).reshape(1, 10, 4).repeat(2, 1, 1)
     valid_lens = torch.tensor([2, 6])
@@ -63,3 +64,6 @@ if __name__ == '__main__':
     attention = AdditiveAttention(key_size=2, query_size=20, num_hiddens=8, dropout=0.1)
     attention.eval()
     attention(queries, keys, values, valid_lens)
+    d2l.show_heatmaps(attention.attention_weights.reshape((1, 1, 4, 10)), xlabel='Keys', ylabel='Queries')
+    d2l.plt.show()
+
