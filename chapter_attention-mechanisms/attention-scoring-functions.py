@@ -26,6 +26,7 @@ class AdditiveAttention(nn.Module):
     """加性注意力"""
     def __init__(self, key_size, query_size, num_hiddens, dropout, **kwargs):
         super(AdditiveAttention, self).__init__(**kwargs)
+        # nn.Linear  不改变 dimension
         self.W_k = nn.Linear(key_size, num_hiddens, bias=False)
         self.W_q = nn.Linear(query_size, num_hiddens, bias=False)
         self.w_v = nn.Linear(num_hiddens, 1, bias=False)
@@ -41,12 +42,15 @@ class AdditiveAttention(nn.Module):
         keys_new_us = keys_new.unsqueeze(1)
         features = queries_new_us + keys_new_us
         features = torch.tanh(features)
-        # self.w_v仅有一个输出，因此从形状中移除最后那个维度。
-        # scores的形状：(batch_size，查询的个数，“键-值”对的个数)
-        scores = self.w_v(features).squeeze(-1)
+        # self.w_v仅有一个输出，因此从形状中移除最后那个维度。   self.w_v 是 加性球和后的结果，在输入单层 MLP 中，w_v 就是那个 MLP
+        # scores 的形状：(batch_size，查询的个数，“键-值”对的个数), scores注意力分数， 他是 key 和 query 做加性注意力的产物
+        scores_origin = self.w_v(features)
+        scores = scores_origin.squeeze(-1)
         self.attention_weights = masked_softmax(scores, valid_lens)
-        # values的形状：(batch_size，“键－值”对的个数，值的维度)
-        return torch.bmm(self.dropout(self.attention_weights), values)
+        # values的形状：(batch_size，“键－值”对的个数，值的长度)
+        # self.attention_weights 的形状：(batch_size，查询的个数，“键-值”对的个数)
+        attention_gather = torch.bmm(self.dropout(self.attention_weights), values)
+        return attention_gather
 
 
 if __name__ == '__main__':
