@@ -1037,9 +1037,10 @@ class EncoderDecoder(nn.Module):
 
 
 class Seq2SeqEncoder(d2l.Encoder):
-    """用于序列到序列学习的循环神经网络编码器
-
-    Defined in :numref:`sec_seq2seq`"""
+    """
+    用于序列到序列学习的循环神经网络编码器
+    Defined in :numref:`sec_seq2seq`
+    """
 
     def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
                  dropout=0, **kwargs):
