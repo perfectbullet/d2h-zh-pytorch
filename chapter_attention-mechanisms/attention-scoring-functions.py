@@ -64,6 +64,6 @@ if __name__ == '__main__':
     attention = AdditiveAttention(key_size=2, query_size=20, num_hiddens=8, dropout=0.1)
     attention.eval()
     attention(queries, keys, values, valid_lens)
-    d2l.show_heatmaps(attention.attention_weights.reshape((1, 1, 4, 10)), xlabel='Keys', ylabel='Queries')
+    d2l.show_heatmaps(attention.attention_weights.reshape((1, 1, 2, 10)), xlabel='Keys', ylabel='Queries')
     d2l.plt.show()
 
