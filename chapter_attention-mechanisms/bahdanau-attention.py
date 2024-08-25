@@ -1,7 +1,8 @@
 import torch
 
 import os
-from d2l.torch import sequence_mask
+
+import d2l.torch as d2l
 from torch import nn
 
 
@@ -16,8 +17,8 @@ def masked_softmax(X, valid_lens):
             valid_lens = torch.repeat_interleave(valid_lens, shape[1])
         else:
             valid_lens = valid_lens.reshape(-1)
-        # 最后一轴上被掩蔽的元素使用一个非常大的负值替换，从而其softmax输出为0
-        X = sequence_mask(X.reshape(-1, shape[-1]), valid_lens, value=-1e6)
+        # 最后一轴上被掩蔽的元素使用一个非常大的负值替换，从而其softmax输出为 0
+        X = d2l.sequence_mask(X.reshape(-1, shape[-1]), valid_lens, value=-1e6)
         re_X = X.reshape(shape)
         softmax_X = nn.functional.softmax(re_X, dim=-1)
         return softmax_X
@@ -113,7 +114,7 @@ class Decoder(nn.Module):
     def __init__(self, **kwargs):
         super(Decoder, self).__init__(**kwargs)
 
-    def init_state(self, enc_outputs, *args):
+    def init_state(self, enc_outputs, enc_valid_lens, *args):
         raise NotImplementedError
 
     def forward(self, X, state):
@@ -147,13 +148,17 @@ class Seq2SeqEncoder(Encoder):
         super(Seq2SeqEncoder, self).__init__(**kwargs)
         # 嵌入层
         self.embedding = nn.Embedding(vocab_size, embed_size)
-        self.rnn = nn.GRU(embed_size, num_hiddens, num_layers,
-                          dropout=dropout)
+        self.rnn = nn.GRU(embed_size, num_hiddens, num_layers, dropout=dropout)
 
     def forward(self, X, *args):
-        # 输出'X'的形状：(batch_size,num_steps,embed_size)
+        # 接收到 X (batch_size,num_steps,)
+
+        # embedding 输出'X'的形状：(batch_size,num_steps,embed_size)
+        # 每个 单词 embedding 为长度为  embed_size
         X = self.embedding(X)
+
         # 在循环神经网络模型中，第一个轴对应于时间步
+        # 时间步简单理解为， 一个样本句子的单词个数，有些是单词个数
         X = X.permute(1, 0, 2)
         # 如果未提及状态，则默认为0
         output, state = self.rnn(X)
@@ -186,36 +191,49 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
         self.dense = nn.Linear(num_hiddens, vocab_size)
 
     def init_state(self, enc_outputs, enc_valid_lens, *args):
-        # outputs的形状为(batch_size，num_steps，num_hiddens).
+        # 返回的 outputs的形状为 (batch_size，num_steps，num_hiddens).
         # hidden_state的形状为(num_layers，batch_size，num_hiddens)
         outputs, hidden_state = enc_outputs
-        return (outputs.permute(1, 0, 2), hidden_state, enc_valid_lens)
+        return outputs.permute(1, 0, 2), hidden_state, enc_valid_lens
 
     def forward(self, X, state):
-        # enc_outputs的形状为(batch_size,num_steps,num_hiddens).
-        # hidden_state的形状为(num_layers,batch_size,
-        # num_hiddens)
+        # 输入 X 形状是 (batch_size, num_steps)
+
+        # enc_outputs的形状为 (batch_size,num_steps,num_hiddens).
+        # hidden_state的形状为(num_layers,batch_size, num_hiddens)
         enc_outputs, hidden_state, enc_valid_lens = state
         # 输出X的形状为(num_steps,batch_size,embed_size)
         X = self.embedding(X).permute(1, 0, 2)
         outputs, self._attention_weights = [], []
         for x in X:
+            # hidden_state[-1]
+            last_hidden_state = hidden_state[-1]
             # query的形状为(batch_size,1,num_hiddens)
-            query = torch.unsqueeze(hidden_state[-1], dim=1)
+            query = torch.unsqueeze(last_hidden_state, dim=1)
             # context的形状为(batch_size,1,num_hiddens)
             context = self.attention(
-                query, enc_outputs, enc_outputs, enc_valid_lens)
+                query,
+                enc_outputs,
+                enc_outputs,
+                enc_valid_lens
+            )
+
+            # us_x 形状是 (batch_size, 1, num_steps)
+            us_x = torch.unsqueeze(x, dim=1)
             # 在特征维度上连结
-            x = torch.cat((context, torch.unsqueeze(x, dim=1)), dim=-1)
-            # 将x变形为(1,batch_size,embed_size+num_hiddens)
+            x = torch.cat((context, us_x), dim=-1)
+            # 然后， x.permute(1, 0, 2) 将x变形为(1,batch_size,embed_size+num_hiddens)
             out, hidden_state = self.rnn(x.permute(1, 0, 2), hidden_state)
             outputs.append(out)
             self._attention_weights.append(self.attention.attention_weights)
-        # 全连接层变换后，outputs的形状为
+        # cat_out 形状是 (num_steps,batch_size,num_hiddens)
+        cat_out = torch.cat(outputs, dim=0)
+
+        # 全连接层变换后，shuoutputs的形状为
         # (num_steps,batch_size,vocab_size)
-        outputs = self.dense(torch.cat(outputs, dim=0))
-        return outputs.permute(1, 0, 2), [enc_outputs, hidden_state,
-                                          enc_valid_lens]
+        outputs = self.dense(cat_out)
+        # outputs.permute(1, 0, 2) 的形状为 (batch_size, um_steps, vocab_size)
+        return outputs.permute(1, 0, 2), [enc_outputs, hidden_state, enc_valid_lens]
 
     @property
     def attention_weights(self):
@@ -223,21 +241,24 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
 
 
 if __name__ == '__main__':
-    print('ok')
-    raw_text = read_data_cmn()
-    # print(raw_text[:1000])
-    text = preprocess_nmt(raw_text)
-    print(text[:80])
-    source, target = tokenize_nmt(text)
-    print(source[:6], target[:6])
+    # print('ok')
+    # raw_text = read_data_cmn()
+    # # print(raw_text[:1000])
+    # text = preprocess_nmt(raw_text)
+    # print(text[:80])
+    # source, target = tokenize_nmt(text)
+    # print(source[:6], target[:6])
 
     # 使用包含7个时间步的4个序列输入的小批量测试Bahdanau注意力解码器。
     encoder = Seq2SeqEncoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
+    # eval() Sets the module in evaluation mode.
     encoder.eval()
     decoder = Seq2SeqAttentionDecoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
     decoder.eval()
     X = torch.zeros((4, 7), dtype=torch.long)  # (batch_size,num_steps)
-    state = decoder.init_state(encoder(X), None)
+    encoder_out = encoder(X)
+    state = decoder.init_state(encoder_out, None)
+
     output, state = decoder(X, state)
     print('##########', output.shape, len(state), state[0].shape, len(state[1]), state[1][0].shape)
 
