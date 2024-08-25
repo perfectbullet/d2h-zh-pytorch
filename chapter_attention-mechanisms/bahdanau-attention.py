@@ -1,10 +1,8 @@
 import torch
-from torch import nn
 
 import os
 from d2l.torch import sequence_mask
 from torch import nn
-
 
 
 def masked_softmax(X, valid_lens):
@@ -27,6 +25,7 @@ def masked_softmax(X, valid_lens):
 
 class AdditiveAttention(nn.Module):
     """加性注意力"""
+
     def __init__(self, key_size, query_size, num_hiddens, dropout, **kwargs):
         super(AdditiveAttention, self).__init__(**kwargs)
         # nn.Linear  不改变 dimension
@@ -56,7 +55,6 @@ class AdditiveAttention(nn.Module):
         attention_gather = torch.bmm(self.attention_weights, values)
         # attention_weights_np = self.attention_weights.detach().numpy()
         return attention_gather
-
 
 
 def read_data_cmn():
