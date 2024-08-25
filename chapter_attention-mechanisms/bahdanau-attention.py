@@ -1,6 +1,5 @@
 import torch
-from torch import nn
-from d2l import torch as d2l
+
 import os
 
 from torch import nn
@@ -61,6 +60,60 @@ class Decoder(nn.Module):
         raise NotImplementedError
 
 
+class AdditiveAttention(nn.Module):
+    """加性注意力
+
+    Defined in :numref:`sec_attention-scoring-functions`"""
+
+    def __init__(self, key_size, query_size, num_hiddens, dropout, **kwargs):
+        super(AdditiveAttention, self).__init__(**kwargs)
+        self.W_k = nn.Linear(key_size, num_hiddens, bias=False)
+        self.W_q = nn.Linear(query_size, num_hiddens, bias=False)
+        self.w_v = nn.Linear(num_hiddens, 1, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, queries, keys, values, valid_lens):
+        queries, keys = self.W_q(queries), self.W_k(keys)
+        # 在维度扩展后，
+        # queries的形状：(batch_size，查询的个数，1，num_hidden)
+        # key的形状：(batch_size，1，“键－值”对的个数，num_hiddens)
+        # 使用广播方式进行求和
+        features = queries.unsqueeze(2) + keys.unsqueeze(1)
+        features = torch.tanh(features)
+        # self.w_v仅有一个输出，因此从形状中移除最后那个维度。
+        # scores的形状：(batch_size，查询的个数，“键-值”对的个数)
+        scores = self.w_v(features).squeeze(-1)
+        self.attention_weights = d2l.masked_softmax(scores, valid_lens)
+        # values的形状：(batch_size，“键－值”对的个数，值的维度)
+        return torch.bmm(self.dropout(self.attention_weights), values)
+
+
+class Seq2SeqEncoder(nn.Module):
+    """
+    用于序列到序列学习的循环神经网络编码器
+    Defined in :numref:`sec_seq2seq`
+    """
+
+    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
+                 dropout=0, **kwargs):
+        super(Seq2SeqEncoder, self).__init__(**kwargs)
+        # 嵌入层
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.rnn = nn.GRU(embed_size, num_hiddens, num_layers,
+                          dropout=dropout)
+
+    def forward(self, X, *args):
+        # 输出'X'的形状：(batch_size,num_steps,embed_size)
+        X = self.embedding(X)
+        # 在循环神经网络模型中，第一个轴对应于时间步
+        X = X.permute(1, 0, 2)
+        # 如果未提及状态，则默认为0
+        output, state = self.rnn(X)
+        # output的形状:(num_steps,batch_size,num_hiddens)
+        # state的形状:(num_layers,batch_size,num_hiddens)
+        return output, state
+
+
 class AttentionDecoder(Decoder):
     """带有注意力机制解码器的基本接口"""
 
@@ -76,8 +129,7 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
     def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
                  dropout=0, **kwargs):
         super(Seq2SeqAttentionDecoder, self).__init__(**kwargs)
-        self.attention = d2l.AdditiveAttention(
-            num_hiddens, num_hiddens, num_hiddens, dropout)
+        self.attention = AdditiveAttention(num_hiddens, num_hiddens, num_hiddens, dropout)
         self.embedding = nn.Embedding(vocab_size, embed_size)
         self.rnn = nn.GRU(
             embed_size + num_hiddens, num_hiddens, num_layers,
@@ -130,8 +182,8 @@ if __name__ == '__main__':
     source, target = tokenize_nmt(text)
     print(source[:6], target[:6])
 
-    # 使用包含7个时间步的4个序列输入的小批量测试Bahdanau注意力解码器。
-    encoder = d2l.Seq2SeqEncoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
+    # 使用包含7个时间步的4个序列输入的小批量测试 Bahdanau 注意力解码器。
+    encoder = Seq2SeqEncoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
     encoder.eval()
     decoder = Seq2SeqAttentionDecoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
     decoder.eval()
