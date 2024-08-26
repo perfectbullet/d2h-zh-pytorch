@@ -86,7 +86,7 @@ def build_array_cmn(lines, vocab, num_steps):
     array = torch.tensor([truncate_pad(
         l, num_steps, vocab['<pad>']) for l in lines])
     valid_len = d2l.reduce_sum(
-        torch.astype(array != vocab['<pad>'], d2l.int32), 1)
+        d2l.astype(array != vocab['<pad>'], d2l.int32), 1)
     return array, valid_len
 
 
