@@ -308,5 +308,5 @@ if __name__ == '__main__':
         len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
     decoder = Seq2SeqAttentionDecoder(
         len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
-    net = d2l.EncoderDecoder(encoder, decoder)
+    net = EncoderDecoder(encoder, decoder)
     d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
