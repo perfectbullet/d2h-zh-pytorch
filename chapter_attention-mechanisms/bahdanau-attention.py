@@ -68,7 +68,44 @@ def read_data_cmn():
         return f.read()
 
 
-def preprocess_nmt(text):
+def truncate_pad(line, num_steps, padding_token):
+    """截断或填充文本序列
+
+    Defined in :numref:`sec_machine_translation`"""
+    if len(line) > num_steps:
+        return line[:num_steps]  # 截断
+    return line + [padding_token] * (num_steps - len(line))  # 填充
+
+
+def build_array_cmn(lines, vocab, num_steps):
+    """将机器翻译的文本序列转换成小批量
+
+    Defined in :numref:`subsec_mt_data_loading`"""
+    lines = [vocab[l] for l in lines]
+    lines = [l + [vocab['<eos>']] for l in lines]
+    array = torch.tensor([truncate_pad(
+        l, num_steps, vocab['<pad>']) for l in lines])
+    valid_len = d2l.reduce_sum(
+        torch.astype(array != vocab['<pad>'], d2l.int32), 1)
+    return array, valid_len
+
+
+def load_data_cmn(batch_size, num_steps, num_examples=600):
+    """返回翻译数据集的迭代器和词表
+
+    Defined in :numref:`subsec_mt_data_loading`"""
+    text = preprocess_cmn(read_data_cmn())
+    source, target = tokenize_cmn(text, num_examples)
+    src_vocab = d2l.Vocab(source, min_freq=2, reserved_tokens=['<pad>', '<bos>', '<eos>'])
+    tgt_vocab = d2l.Vocab(target, min_freq=2, reserved_tokens=['<pad>', '<bos>', '<eos>'])
+    src_array, src_valid_len = build_array_cmn(source, src_vocab, num_steps)
+    tgt_array, tgt_valid_len = build_array_cmn(target, tgt_vocab, num_steps)
+    data_arrays = (src_array, src_valid_len, tgt_array, tgt_valid_len)
+    data_iter = d2l.load_array(data_arrays, batch_size)
+    return data_iter, src_vocab, tgt_vocab
+
+
+def preprocess_cmn(text):
     """预处理“英语－法语”数据集"""
 
     def no_space(char, prev_char):
@@ -83,7 +120,7 @@ def preprocess_nmt(text):
     return ''.join(out)
 
 
-def tokenize_nmt(text, num_examples=None):
+def tokenize_cmn(text, num_examples=None):
     """词元化“英语－法语”数据数据集"""
     source, target = [], []
     for i, line in enumerate(text.split('\n')):
@@ -250,26 +287,26 @@ if __name__ == '__main__':
     # print(source[:6], target[:6])
 
     # 使用包含7个时间步的4个序列输入的小批量测试Bahdanau注意力解码器。
-    encoder = Seq2SeqEncoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
+    # encoder = Seq2SeqEncoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
     # eval() Sets the module in evaluation mode.
-    encoder.eval()
-    decoder = Seq2SeqAttentionDecoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
-    decoder.eval()
-    X = torch.zeros((4, 7), dtype=torch.long)  # (batch_size,num_steps)
-    encoder_out = encoder(X)
-    state = decoder.init_state(encoder_out, None)
+    # encoder.eval()
+    # decoder = Seq2SeqAttentionDecoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
+    # decoder.eval()
+    # X = torch.zeros((4, 7), dtype=torch.long)  # (batch_size,num_steps)
+    # encoder_out = encoder(X)
+    # state = decoder.init_state(encoder_out, None)
 
-    output, state = decoder(X, state)
-    print('##########', output.shape, len(state), state[0].shape, len(state[1]), state[1][0].shape)
+    # output, state = decoder(X, state)
+    # print('##########', output.shape, len(state), state[0].shape, len(state[1]), state[1][0].shape)
 
-    # embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
-    # batch_size, num_steps = 64, 10
-    # lr, num_epochs, device = 0.005, 250, d2l.try_gpu()
-    #
-    # train_iter, src_vocab, tgt_vocab = d2l.load_data_nmt(batch_size, num_steps)
-    # encoder = d2l.Seq2SeqEncoder(
-    #     len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
-    # decoder = Seq2SeqAttentionDecoder(
-    #     len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
-    # net = d2l.EncoderDecoder(encoder, decoder)
-    # d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+    embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
+    batch_size, num_steps = 64, 10
+    lr, num_epochs, device = 0.005, 250, d2l.try_gpu()
+
+    train_iter, src_vocab, tgt_vocab = load_data_cmn(batch_size, num_steps)
+    encoder = d2l.Seq2SeqEncoder(
+        len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+    decoder = Seq2SeqAttentionDecoder(
+        len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+    net = d2l.EncoderDecoder(encoder, decoder)
+    d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
