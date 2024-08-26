@@ -129,7 +129,8 @@ def tokenize_cmn(text, num_examples=None):
         parts = line.split('\t')
         if len(parts) == 2:
             source.append(parts[0].split(' '))
-            target.append(parts[1].split(' '))
+            for a_line in parts[1].split(' '):
+                target.append(list(a_line))
     return source, target
 
 
