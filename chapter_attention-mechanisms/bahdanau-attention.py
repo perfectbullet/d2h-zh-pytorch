@@ -83,8 +83,8 @@ def build_array_cmn(lines, vocab, num_steps):
     Defined in :numref:`subsec_mt_data_loading`"""
     lines = [vocab[l] for l in lines]
     lines = [l + [vocab['<eos>']] for l in lines]
-    array = torch.tensor([truncate_pad(
-        l, num_steps, vocab['<pad>']) for l in lines])
+
+    array = torch.tensor([truncate_pad(l, num_steps, vocab['<pad>']) for l in lines])
     valid_len = d2l.reduce_sum(
         d2l.astype(array != vocab['<pad>'], d2l.int32), 1)
     return array, valid_len
@@ -97,6 +97,7 @@ def load_data_cmn(batch_size, num_steps, num_examples=None):
     text = preprocess_cmn(read_data_cmn())
     # tokenize_cmn 词元化，
     source, target = tokenize_cmn(text, num_examples)
+    print('source[:3] {}, target[:3] {}'.format(source[90:93], target[90:93]))
     src_vocab = d2l.Vocab(source, min_freq=2, reserved_tokens=['<pad>', '<bos>', '<eos>'])
     tgt_vocab = d2l.Vocab(target, min_freq=2, reserved_tokens=['<pad>', '<bos>', '<eos>'])
     src_array, src_valid_len = build_array_cmn(source, src_vocab, num_steps)
@@ -121,7 +122,7 @@ def preprocess_cmn(text):
     return ''.join(out)
 
 
-def tokenize_cmn(text, num_examples=None):
+def tokenize_cmn(text, num_examples=None, reversed=False):
     """词元化 “英语－汉语”数据数据集"""
     source, target = [], []
     for i, line in enumerate(text.split('\n')):
@@ -323,10 +324,10 @@ def predict_seq2seq(net, src_sentence, src_vocab, tgt_vocab, num_steps,
     """序列到序列模型的预测
 
     Defined in :numref:`sec_seq2seq_training`"""
+    net.to(device)
     # 在预测时将net设置为评估模式
     net.eval()
-    src_tokens = src_vocab[src_sentence.lower().split(' ')] + [
-        src_vocab['<eos>']]
+    src_tokens = src_vocab[src_sentence.lower().split(' ')] + [src_vocab['<eos>']]
     enc_valid_len = torch.tensor([len(src_tokens)], device=device)
     src_tokens = d2l.truncate_pad(src_tokens, num_steps, src_vocab['<pad>'])
     # 添加批量轴
@@ -377,38 +378,40 @@ if __name__ == '__main__':
     # print('##########', output.shape, len(state), state[0].shape, len(state[1]), state[1][0].shape)
 
     # 训练
-    embed_size, num_hiddens, num_layers, dropout = 64, 32, 2, 0.1
-    batch_size, num_steps = 124, 20
-    lr, num_epochs, device = 0.005, 100, d2l.try_gpu()
+    embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
+    batch_size, num_steps = 64, 10
+    lr, num_epochs, device = 0.005, 250, d2l.try_gpu()
+    #  num_examples 样本数量
+    num_examples = 1000
 
-    train_iter, src_vocab, tgt_vocab = load_data_cmn(batch_size, num_steps)
-
-    encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
-    decoder = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
-    net = EncoderDecoder(encoder, decoder)
-    train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
-
-    # 模型训练后，我们用它将几个英语句子翻译成法语并计算它们的BLEU分数。
-    engs = ['get lost !', 'get lost !', 'get lost .', 'get real .', 'good job !', 'good job !', 'grab tom .', 'grab him .', 'have fun .', 'he tries .']
-    cmns = ['滾！', '滚。', '滚。', '醒醒吧。', '做得好！', '干的好！', '抓住汤姆。', '抓住他。', '玩得開心。', '他来试试。']
-    for eng, cmn in zip(engs, cmns):
-        translation, dec_attention_weight_seq = predict_seq2seq(
-            net, eng, src_vocab, tgt_vocab, num_steps, device, True)
-        print(f'{eng} => {translation}, ', f'bleu {d2l.bleu(translation, cmn, k=2):.3f}')
+    train_iter, src_vocab, tgt_vocab = load_data_cmn(batch_size, num_steps, num_examples=num_examples)
+    # print('src_vocab len is {}, tgt_vocab len is {}'.format(len(src_vocab), len(tgt_vocab)))
+    # encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+    # decoder = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+    # net = EncoderDecoder(encoder, decoder)
+    # train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+    #
+    # # 模型训练后，我们用它将几个英语句子翻译成法语并计算它们的BLEU分数。
+    # engs = ['get lost !', 'get lost !', 'get lost .', 'get real .', 'good job !', 'good job !', 'grab tom .', 'grab him .', 'have fun .', 'he tries .']
+    # cmns = ['滾！', '滚。', '滚。', '醒醒吧。', '做得好！', '干的好！', '抓住汤姆。', '抓住他。', '玩得開心。', '他来试试。']
+    # for eng, cmn in zip(engs, cmns):
+    #     translation, dec_attention_weight_seq = predict_seq2seq(
+    #         net, eng, src_vocab, tgt_vocab, num_steps, device, True)
+    #     print(f'{eng} => {translation}, ', f'bleu {d2l.bleu(translation, cmn, k=2):.3f}')
 
     # 保存模型 和 加载模型
     params_save_path = './ok-bahdanauv2.params'
-    torch.save(net.state_dict(), params_save_path)
+    # torch.save(net.state_dict(), params_save_path)
 
     # 加载模型
     encoder2 = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
     decoder2 = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
     new_net = EncoderDecoder(encoder2, decoder2)
     new_net.load_state_dict(torch.load(params_save_path))
-
+    # new_net.to(device)
     # We hold these truths to be self-evident, that all men are created equal,
     # that they are endowed by their Creator with certain unalienable rights,
     # that they are among these are life, liberty and the pursuit of happiness.
-    demo_text = 'We hold these truths to be self-evident, that all men are created equal, that they are endowed by their Creator with certain unalienable rights, that they are among these are life, liberty and the pursuit of happiness. '
+    demo_text = 'back off'
     new_translation, dec_attention_weight_seq = predict_seq2seq(new_net, demo_text, src_vocab, tgt_vocab, num_steps, device, True)
     print(f'{demo_text} => {new_translation}')
