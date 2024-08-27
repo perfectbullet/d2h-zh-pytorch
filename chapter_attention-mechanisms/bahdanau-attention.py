@@ -90,11 +90,12 @@ def build_array_cmn(lines, vocab, num_steps):
     return array, valid_len
 
 
-def load_data_cmn(batch_size, num_steps, num_examples=600):
+def load_data_cmn(batch_size, num_steps, num_examples=None):
     """返回翻译数据集的迭代器和词表
 
     Defined in :numref:`subsec_mt_data_loading`"""
     text = preprocess_cmn(read_data_cmn())
+    # tokenize_cmn 词元化，
     source, target = tokenize_cmn(text, num_examples)
     src_vocab = d2l.Vocab(source, min_freq=2, reserved_tokens=['<pad>', '<bos>', '<eos>'])
     tgt_vocab = d2l.Vocab(target, min_freq=2, reserved_tokens=['<pad>', '<bos>', '<eos>'])
@@ -121,7 +122,7 @@ def preprocess_cmn(text):
 
 
 def tokenize_cmn(text, num_examples=None):
-    """词元化“英语－法语”数据数据集"""
+    """词元化 “英语－汉语”数据数据集"""
     source, target = [], []
     for i, line in enumerate(text.split('\n')):
         if num_examples and i > num_examples:
@@ -129,8 +130,9 @@ def tokenize_cmn(text, num_examples=None):
         parts = line.split('\t')
         if len(parts) == 2:
             source.append(parts[0].split(' '))
-            for a_line in parts[1].split(' '):
-                target.append(list(a_line))
+            # for a_line in parts[1].split(' '):
+            # 汉语这里要分词
+            target.append(list(parts[1]))
     return source, target
 
 
@@ -181,8 +183,7 @@ class Seq2SeqEncoder(Encoder):
     Defined in :numref:`sec_seq2seq`
     """
 
-    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
-                 dropout=0, **kwargs):
+    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers, dropout=0.0, **kwargs):
         super(Seq2SeqEncoder, self).__init__(**kwargs)
         # 嵌入层
         self.embedding = nn.Embedding(vocab_size, embed_size)
@@ -218,7 +219,7 @@ class AttentionDecoder(Decoder):
 
 class Seq2SeqAttentionDecoder(AttentionDecoder):
     def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
-                 dropout=0, **kwargs):
+                 dropout=0.0, **kwargs):
         super(Seq2SeqAttentionDecoder, self).__init__(**kwargs)
         self.attention = AdditiveAttention(
             num_hiddens, num_hiddens, num_hiddens, dropout)
@@ -278,6 +279,80 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
         return self._attention_weights
 
 
+def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
+    """训练序列到序列模型
+
+    Defined in :numref:`sec_seq2seq_decoder`"""
+
+    def xavier_init_weights(m):
+        if type(m) == nn.Linear:
+            nn.init.xavier_uniform_(m.weight)
+        if type(m) == nn.GRU:
+            for param in m._flat_weights_names:
+                if "weight" in param:
+                    nn.init.xavier_uniform_(m._parameters[param])
+
+    net.apply(xavier_init_weights)
+    net.to(device)
+    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+    loss = d2l.MaskedSoftmaxCELoss()
+    net.train()
+
+    for epoch in range(num_epochs):
+        timer = d2l.Timer()
+        metric = d2l.Accumulator(2)  # 训练损失总和，词元数量
+        for batch in data_iter:
+            optimizer.zero_grad()
+            X, X_valid_len, Y, Y_valid_len = [x.to(device) for x in batch]
+            bos = torch.tensor([tgt_vocab['<bos>']] * Y.shape[0], device=device).reshape(-1, 1)
+            dec_input = torch.cat([bos, Y[:, :-1]], 1)  # 强制教学
+            Y_hat, _ = net(X, dec_input, X_valid_len)
+            l = loss(Y_hat, Y, Y_valid_len)
+            l.sum().backward()  # 损失函数的标量进行“反向传播”
+            d2l.grad_clipping(net, 1)
+            num_tokens = Y_valid_len.sum()
+            optimizer.step()
+            with torch.no_grad():
+                metric.add(l.sum(), num_tokens)
+        print(f'loss {metric[0] / metric[1]:.3f}, {metric[1] / timer.stop():.1f} '
+              f'tokens/sec on {str(device)}')
+
+
+def predict_seq2seq(net, src_sentence, src_vocab, tgt_vocab, num_steps,
+                    device, save_attention_weights=False):
+    """序列到序列模型的预测
+
+    Defined in :numref:`sec_seq2seq_training`"""
+    # 在预测时将net设置为评估模式
+    net.eval()
+    src_tokens = src_vocab[src_sentence.lower().split(' ')] + [
+        src_vocab['<eos>']]
+    enc_valid_len = torch.tensor([len(src_tokens)], device=device)
+    src_tokens = d2l.truncate_pad(src_tokens, num_steps, src_vocab['<pad>'])
+    # 添加批量轴
+    enc_X = torch.unsqueeze(
+        torch.tensor(src_tokens, dtype=torch.long, device=device), dim=0)
+    enc_outputs = net.encoder(enc_X, enc_valid_len)
+    dec_state = net.decoder.init_state(enc_outputs, enc_valid_len)
+    # 添加批量轴
+    dec_X = torch.unsqueeze(torch.tensor(
+        [tgt_vocab['<bos>']], dtype=torch.long, device=device), dim=0)
+    output_seq, attention_weight_seq = [], []
+    for _ in range(num_steps):
+        Y, dec_state = net.decoder(dec_X, dec_state)
+        # 我们使用具有预测最高可能性的词元，作为解码器在下一时间步的输入
+        dec_X = Y.argmax(dim=2)
+        pred = dec_X.squeeze(dim=0).type(torch.int32).item()
+        # 保存注意力权重（稍后讨论）
+        if save_attention_weights:
+            attention_weight_seq.append(net.decoder.attention_weights)
+        # 一旦序列结束词元被预测，输出序列的生成就完成了
+        if pred == tgt_vocab['<eos>']:
+            break
+        output_seq.append(pred)
+    return ' '.join(tgt_vocab.to_tokens(output_seq)), attention_weight_seq
+
+
 if __name__ == '__main__':
     # print('ok')
     # raw_text = read_data_cmn()
@@ -287,6 +362,7 @@ if __name__ == '__main__':
     # source, target = tokenize_nmt(text)
     # print(source[:6], target[:6])
 
+    # ##################### 测试网络输出
     # 使用包含7个时间步的4个序列输入的小批量测试Bahdanau注意力解码器。
     # encoder = Seq2SeqEncoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
     # eval() Sets the module in evaluation mode.
@@ -300,14 +376,39 @@ if __name__ == '__main__':
     # output, state = decoder(X, state)
     # print('##########', output.shape, len(state), state[0].shape, len(state[1]), state[1][0].shape)
 
-    embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
-    batch_size, num_steps = 64, 10
-    lr, num_epochs, device = 0.005, 250, d2l.try_gpu()
+    # 训练
+    embed_size, num_hiddens, num_layers, dropout = 64, 32, 2, 0.1
+    batch_size, num_steps = 124, 20
+    lr, num_epochs, device = 0.005, 100, d2l.try_gpu()
 
     train_iter, src_vocab, tgt_vocab = load_data_cmn(batch_size, num_steps)
-    encoder = d2l.Seq2SeqEncoder(
-        len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
-    decoder = Seq2SeqAttentionDecoder(
-        len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+
+    encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+    decoder = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
     net = EncoderDecoder(encoder, decoder)
-    d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+    train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+
+    # 模型训练后，我们用它将几个英语句子翻译成法语并计算它们的BLEU分数。
+    engs = ['get lost !', 'get lost !', 'get lost .', 'get real .', 'good job !', 'good job !', 'grab tom .', 'grab him .', 'have fun .', 'he tries .']
+    cmns = ['滾！', '滚。', '滚。', '醒醒吧。', '做得好！', '干的好！', '抓住汤姆。', '抓住他。', '玩得開心。', '他来试试。']
+    for eng, cmn in zip(engs, cmns):
+        translation, dec_attention_weight_seq = predict_seq2seq(
+            net, eng, src_vocab, tgt_vocab, num_steps, device, True)
+        print(f'{eng} => {translation}, ', f'bleu {d2l.bleu(translation, cmn, k=2):.3f}')
+
+    # 保存模型 和 加载模型
+    params_save_path = './ok-bahdanauv2.params'
+    torch.save(net.state_dict(), params_save_path)
+
+    # 加载模型
+    encoder2 = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+    decoder2 = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+    new_net = EncoderDecoder(encoder2, decoder2)
+    new_net.load_state_dict(torch.load(params_save_path))
+
+    # We hold these truths to be self-evident, that all men are created equal,
+    # that they are endowed by their Creator with certain unalienable rights,
+    # that they are among these are life, liberty and the pursuit of happiness.
+    demo_text = 'We hold these truths to be self-evident, that all men are created equal, that they are endowed by their Creator with certain unalienable rights, that they are among these are life, liberty and the pursuit of happiness. '
+    new_translation, dec_attention_weight_seq = predict_seq2seq(new_net, demo_text, src_vocab, tgt_vocab, num_steps, device, True)
+    print(f'{demo_text} => {new_translation}')
