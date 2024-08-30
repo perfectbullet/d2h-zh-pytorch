@@ -385,19 +385,19 @@ if __name__ == '__main__':
     num_examples = 1000
 
     train_iter, src_vocab, tgt_vocab = load_data_cmn(batch_size, num_steps, num_examples=num_examples)
-    # print('src_vocab len is {}, tgt_vocab len is {}'.format(len(src_vocab), len(tgt_vocab)))
-    # encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
-    # decoder = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
-    # net = EncoderDecoder(encoder, decoder)
-    # train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
-    #
-    # # 模型训练后，我们用它将几个英语句子翻译成法语并计算它们的BLEU分数。
-    # engs = ['get lost !', 'get lost !', 'get lost .', 'get real .', 'good job !', 'good job !', 'grab tom .', 'grab him .', 'have fun .', 'he tries .']
-    # cmns = ['滾！', '滚。', '滚。', '醒醒吧。', '做得好！', '干的好！', '抓住汤姆。', '抓住他。', '玩得開心。', '他来试试。']
-    # for eng, cmn in zip(engs, cmns):
-    #     translation, dec_attention_weight_seq = predict_seq2seq(
-    #         net, eng, src_vocab, tgt_vocab, num_steps, device, True)
-    #     print(f'{eng} => {translation}, ', f'bleu {d2l.bleu(translation, cmn, k=2):.3f}')
+    print('src_vocab len is {}, tgt_vocab len is {}'.format(len(src_vocab), len(tgt_vocab)))
+    encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+    decoder = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+    net = EncoderDecoder(encoder, decoder)
+    train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+
+    # 模型训练后，我们用它将几个英语句子翻译成法语并计算它们的BLEU分数。
+    engs = ['get lost !', 'get lost !', 'get lost .', 'get real .', 'good job !', 'good job !', 'grab tom .', 'grab him .', 'have fun .', 'he tries .']
+    cmns = ['滾！', '滚。', '滚。', '醒醒吧。', '做得好！', '干的好！', '抓住汤姆。', '抓住他。', '玩得開心。', '他来试试。']
+    for eng, cmn in zip(engs, cmns):
+        translation, dec_attention_weight_seq = predict_seq2seq(
+            net, eng, src_vocab, tgt_vocab, num_steps, device, True)
+        print(f'{eng} => {translation}, ', f'bleu {d2l.bleu(translation, cmn, k=2):.3f}')
 
     # 保存模型 和 加载模型
     params_save_path = './ok-bahdanauv2.params'
