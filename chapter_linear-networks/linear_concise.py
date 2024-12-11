@@ -43,7 +43,6 @@ for epoch in range(0, 10):
         l.backward()
         trainer.step()
 
-
     with torch.no_grad():
         y_hat = net(features)
         l = loss(y_hat.reshape(labels.shape), labels)
