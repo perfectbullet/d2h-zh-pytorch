@@ -1,9 +1,8 @@
-from matplotlib import pyplot as plt
-from torch import nn
+import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor
-from triton.interpreter.memory_map import torch
+
 
 from utils import set_axes, Accumulator, accuracy, evaluate_accuracy
 

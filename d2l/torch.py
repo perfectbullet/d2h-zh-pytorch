@@ -51,7 +51,7 @@ def use_svg_display():
     """使用svg格式在Jupyter中显示绘图
 
     Defined in :numref:`sec_calculus`"""
-    backend_inline.set_matplotlib_formats('svg')
+    backend_inline.set_matplotlib_formats('png')
 
 
 def set_figsize(figsize=(3.5, 2.5)):
