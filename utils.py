@@ -7,7 +7,7 @@ from torchvision import datasets
 from torchvision.transforms import ToTensor
 
 
-def load_data_fashion_mnist(batch_size=64):
+def load_data_fashion_mnist(batch_size: int = 64) -> tuple[DataLoader, DataLoader]:
     # Create data loaders.
     data_dir = join(abspath(dirname(__file__)), 'data')
     # Download training data from open datasets.
@@ -120,19 +120,15 @@ class Animator:
             self.X = [[] for _ in range(n)]
         if not self.Y:
             self.Y = [[] for _ in range(n)]
-        # print(y)
         for i, (a, b) in enumerate(zip(x, y)):
             if a is not None and b is not None:
                 self.X[i].append(a)
                 self.Y[i].append(b)
         self.axes[0].cla()
         for x, y, fmt in zip(self.X, self.Y, self.fmts):
-            print(x, y, fmt)
             self.axes[0].plot(x, y, fmt)
         self.config_axes()
-        # plt.savefig("sample_plot.png")
         plt.show()
-        print('plt.show()')
 
 
 def train_epoch_ch3(net, train_iter, loss, updater):
@@ -147,7 +143,6 @@ def train_epoch_ch3(net, train_iter, loss, updater):
         # 计算梯度并更新参数
         y_hat = net(X)
         l = loss(y_hat, y)
-        print('l shape is {}'.format(l.shape))
         if isinstance(updater, torch.optim.Optimizer):
             # 使用PyTorch内置的优化器和损失函数
             updater.zero_grad()
@@ -175,6 +170,41 @@ def train_ch3(net, train_iter, test_iter, loss, num_epochs, updater):
         animator.add(epoch + 1, train_metrics + (test_acc,))
         train_loss, train_acc = train_metrics
         print('train_loss {}, train_acc is {}'.format(train_loss, train_acc))
-    # assert train_loss < 0.5, train_loss
-    # assert train_acc <= 1 and train_acc > 0.7, train_acc
-    # assert test_acc <= 1 and test_acc > 0.7, test_acc
+    assert train_loss < 0.5, train_loss
+    assert train_acc <= 1 and train_acc > 0.7, train_acc
+    assert test_acc <= 1 and test_acc > 0.7, test_acc
+
+
+def show_images(imgs, num_rows, num_cols, titles=None, scale=5):
+    """绘制图像列表
+
+    Defined in :numref:`sec_fashion_mnist`"""
+    figsize = (num_cols * scale, num_rows * scale)
+    _, axes = plt.subplots(num_rows, num_cols, figsize=figsize)
+    axes = axes.flatten()
+    for i, (ax, img) in enumerate(zip(axes, imgs)):
+        if torch.is_tensor(img):
+            # 图片张量
+            ax.imshow(img.numpy())
+        else:
+            # PIL图片
+            ax.imshow(img)
+        ax.axes.get_xaxis().set_visible(False)
+        ax.axes.get_yaxis().set_visible(False)
+        if titles:
+            ax.set_title(titles[i])
+    plt.show()
+    # return axes
+
+
+def predict_ch3(net, test_iter, n=6):  #@save
+    """预测标签（定义见第3章）"""
+    text_labels = ['t-shirt', 'trouser', 'pullover', 'dress', 'coat',
+                   'sandal', 'shirt', 'sneaker', 'bag', 'ankle boot']
+    for X, y in test_iter:
+        print('shape of X {}'.format(X.shape))
+        trues = [text_labels[int(i)] for i in y]
+        preds = [text_labels[int(i)] for i in net(X).argmax(axis=1)]
+        titles = [true +'->' + pred for true, pred in zip(trues, preds)]
+        show_images(X[0:n].reshape((n, 28, 28)), 1, n, titles=titles[0:n])
+        break
