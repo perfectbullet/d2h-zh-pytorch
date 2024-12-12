@@ -197,7 +197,7 @@ def show_images(imgs, num_rows, num_cols, titles=None, scale=5):
     # return axes
 
 
-def predict_ch3(net, test_iter, n=6):  #@save
+def predict_ch3(net, test_iter, n=10):  #@save
     """预测标签（定义见第3章）"""
     text_labels = ['t-shirt', 'trouser', 'pullover', 'dress', 'coat',
                    'sandal', 'shirt', 'sneaker', 'bag', 'ankle boot']
@@ -205,6 +205,6 @@ def predict_ch3(net, test_iter, n=6):  #@save
         print('shape of X {}'.format(X.shape))
         trues = [text_labels[int(i)] for i in y]
         preds = [text_labels[int(i)] for i in net(X).argmax(axis=1)]
-        titles = [true +'->' + pred for true, pred in zip(trues, preds)]
-        show_images(X[0:n].reshape((n, 28, 28)), 1, n, titles=titles[0:n])
+        titles = [true +'\n' + pred for true, pred in zip(trues, preds)]
+        show_images(X[0:n].reshape((n, 28, 28)), 2, n//2, titles=titles[0:n])
         break
