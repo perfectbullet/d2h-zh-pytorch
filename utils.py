@@ -131,7 +131,8 @@ class Animator:
         for x, y, fmt in zip(self.X, self.Y, self.fmts):
             self.axes[0].plot(x, y, fmt)
         self.config_axes()
-        plt.show()
+        plt.savefig('img.png')
+        # plt.show()
 
 
 def train_epoch_ch3(net, train_iter, loss, updater):
