@@ -5,27 +5,34 @@ from os.path import join, dirname, abspath
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor
+from torchvision import transforms
 
 
-def load_data_fashion_mnist(batch_size: int = 64) -> tuple[DataLoader, DataLoader]:
+def load_data_fashion_mnist(batch_size: int = 64, resize=None) -> tuple[DataLoader, DataLoader]:
     # Create data loaders.
+    trans = [transforms.ToTensor()]
+    if resize:
+        trans.insert(0, transforms.Resize(resize))
+    trans = transforms.Compose(trans)
+
     data_dir = join(abspath(dirname(__file__)), 'data')
     # Download training data from open datasets.
     training_data = datasets.FashionMNIST(
         root=data_dir,
         train=True,
         download=True,
-        transform=ToTensor(),
+        transform=trans,
     )
     # Download test data from open datasets.
     test_data = datasets.FashionMNIST(
         root=data_dir,
         train=False,
         download=True,
-        transform=ToTensor(),
+        transform=trans,
     )
     train_dataloader = DataLoader(training_data, batch_size=batch_size)
     test_dataloader = DataLoader(test_data, batch_size=batch_size)
@@ -201,7 +208,7 @@ def show_images(imgs, num_rows, num_cols, titles=None, scale=5):
     # return axes
 
 
-def predict_ch3(net, test_iter, n=10):  #@save
+def predict_ch3(net, test_iter, n=10):  # @save
     """预测标签（定义见第3章）"""
     text_labels = ['t-shirt', 'trouser', 'pullover', 'dress', 'coat',
                    'sandal', 'shirt', 'sneaker', 'bag', 'ankle boot']
@@ -209,11 +216,9 @@ def predict_ch3(net, test_iter, n=10):  #@save
         print('shape of X {}'.format(X.shape))
         trues = [text_labels[int(i)] for i in y]
         preds = [text_labels[int(i)] for i in net(X).argmax(axis=1)]
-        titles = [true +'\n' + pred for true, pred in zip(trues, preds)]
-        show_images(X[0:n].reshape((n, 28, 28)), 2, n//2, titles=titles[0:n])
+        titles = [true + '\n' + pred for true, pred in zip(trues, preds)]
+        show_images(X[0:n].reshape((n, 28, 28)), 2, n // 2, titles=titles[0:n])
         break
-
-
 
 
 class Timer:
@@ -244,3 +249,88 @@ class Timer:
     def cumsum(self):
         """返回累计时间"""
         return np.array(self.times).cumsum().tolist()
+
+
+def evaluate_accuracy_gpu(net, test_loader, device=None):
+    '''
+    使用gpu计算精度
+    '''
+    if isinstance(net, nn.Module):
+        # 设置评估模式
+        net.eval()
+        if device is None:
+            device = next(iter(net.parameters())).device
+    print('evaluate on ', device)
+    # 正确预测数量， 总数量
+    metric = Accumulator(2)
+    with torch.no_grad():
+        for x, y in test_loader:
+            if isinstance(x, list):
+                # bert微调所需
+                x = [xi.to(device) for xi in x]
+            else:
+                x = x.to(device)
+            y = y.to(device)
+            metric.add(accuracy(net(x), y), y.numel())
+    return metric[0] / metric[1]
+
+
+def try_gpu(i=0):
+    """如果存在，则返回gpu(i)，否则返回cpu()
+
+    Defined in :numref:`sec_use_gpu`"""
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
+def init_weights(m):
+    """初始化权重 xavier_uniform_ """
+    if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        nn.init.xavier_uniform_(m.weight)
+
+
+def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
+    """用gpu训练模型"""
+    net.apply(init_weights)
+    print('trainning on ', device)
+    net.to(device)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr)
+    # reduction='mean' 取loss输出的加权平均值
+    loss = nn.CrossEntropyLoss(reduction='mean')
+    animator = Animator(
+        xlabel='epoch',
+        xlim=[1, num_epochs],
+        ylim=[0.3, 0.9],
+        legend=['train loss', 'train acc', 'test acc']
+    )
+    timer = Timer()
+    avg_train_loss = None
+    train_accuracy = None
+    test_acc = None
+    metric = None
+    for epoch in range(1, num_epochs + 1):
+        # loss, train accuracy, test accuracy
+        metric = Accumulator(3)
+        timer.start()
+        net.train()
+        avg_train_loss = None
+        train_accuracy = None
+        for X, y in train_iter:
+            optimizer.zero_grad()
+            X = X.to(device)
+            y = y.to(device)
+            y_hat = net(X)
+            l = loss(y_hat, y)
+            l.backward()
+            optimizer.step()
+            with torch.no_grad():
+                metric.add(l * X.shape[0], accuracy(y_hat, y), y.numel())
+            avg_train_loss = metric[0] / metric[2]
+            train_accuracy = metric[1] / metric[2]
+        test_acc = evaluate_accuracy_gpu(net, test_iter)
+        animator.add(epoch, (avg_train_loss, train_accuracy, test_acc))
+        timer.stop()
+        print('epoch {}, train_loss {}, train_acc is {}'.format(epoch, avg_train_loss, train_accuracy))
+    print(f'loss {avg_train_loss:.3f}, train acc {train_accuracy:.3f}, test acc {test_acc:.3f}')
+    print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec on {str(device)}')
