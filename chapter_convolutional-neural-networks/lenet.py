@@ -81,9 +81,11 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
     avg_train_loss = None
     train_accuracy = None
     test_acc = None
+    metric = None
     for epoch in range(1, num_epochs + 1):
         # loss, train accuracy, test accuracy
         metric = Accumulator(3)
+        timer.start()
         net.train()
         avg_train_loss = None
         train_accuracy = None
@@ -101,6 +103,7 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
             train_accuracy = metric[1] / metric[2]
         test_acc = evaluate_accuracy_gpu(net, test_iter)
         animator.add(epoch, (avg_train_loss, train_accuracy, test_acc))
+        timer.stop()
         print('epoch {}, train_loss {}, train_acc is {}'.format(epoch, avg_train_loss, train_accuracy))
     print(f'loss {avg_train_loss:.3f}, train acc {train_accuracy:.3f}, test acc {test_acc:.3f}')
     print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec on {str(device)}')
@@ -112,5 +115,5 @@ if __name__ == '__main__':
     # net.to('cuda')
     # print(evaluate_accuracy_gpu(net, test_dataloader))
     # 输出0.1
-    lr, num_epochs = 0.9, 10
+    lr, num_epochs = 0.5, 20
     train_ch6(net, train_dataloader, test_dataloader, num_epochs, lr, try_gpu())
