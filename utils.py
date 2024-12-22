@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor
 from torchvision import transforms
-
+from torch.nn import functional as F
 
 def load_data_fashion_mnist(batch_size: int = 64, resize=None) -> tuple[DataLoader, DataLoader]:
     # Create data loaders.
@@ -139,7 +139,7 @@ class Animator:
             self.axes[0].plot(x, y, fmt)
         self.config_axes()
         plt.savefig('img.png')
-        # plt.show()
+        plt.show()
 
 
 def train_epoch_ch3(net, train_iter, loss, updater):
@@ -331,6 +331,78 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
         test_acc = evaluate_accuracy_gpu(net, test_iter)
         animator.add(epoch, (avg_train_loss, train_accuracy, test_acc))
         timer.stop()
-        print('epoch {}, train_loss {}, train_acc is {}'.format(epoch, avg_train_loss, train_accuracy))
+        print('epoch {}, train_loss {}, train_acc is {}, test_acc {}'.format(epoch, avg_train_loss, train_accuracy, test_acc))
     print(f'loss {avg_train_loss:.3f}, train acc {train_accuracy:.3f}, test acc {test_acc:.3f}')
     print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec on {str(device)}')
+
+
+def set_figsize(figsize=(3.5, 2.5)):
+    """设置matplotlib的图表大小
+    Defined in :numref:`sec_calculus`"""
+    plt.rcParams['figure.figsize'] = figsize
+
+
+def try_all_gpus():
+    devices = [torch.device('cuda:{}'.format(i)) for i in range(torch.cuda.device_count())]
+    return devices
+
+
+
+class Residual(nn.Module):
+    def __init__(self, input_channels, num_channels, use_1x1conv=False, strides=1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(input_channels, num_channels, kernel_size=3, padding=1, stride=strides)
+        self.conv2 = nn.Conv2d(num_channels, num_channels, kernel_size=3, padding=1)
+        if use_1x1conv:
+            # 高宽减半的时候，也就是 strides 为 2 的时候，要使用 1*1 的核融合通道，并把x输入的高宽减半
+            # 这样才可以做残差链接
+            self.conv3 = nn.Conv2d(input_channels, num_channels, kernel_size=1, stride=strides)
+        else:
+            self.conv3 = None
+        # batch norm 不改变通道数和高宽
+        self.bn1 = nn.BatchNorm2d(num_channels)
+        self.bn2 = nn.BatchNorm2d(num_channels)
+
+    def forward(self, X):
+        Y = F.relu(self.bn1(self.conv1(X)))
+        Y = self.bn2(self.conv2(Y))
+        if self.conv3:
+            X = self.conv3(X)
+        Y += X
+        return F.relu(Y)
+
+
+def resnet18(num_classes, in_channels=1):
+    """稍加修改的ResNet-18模型
+
+    Defined in :numref:`sec_multi_gpu_concise`"""
+
+    def resnet_block(in_channels, out_channels, num_residuals, first_block=False):
+        blk = []
+        for i in range(num_residuals):
+            if i == 0 and not first_block:
+                blk.append(Residual(in_channels, out_channels, use_1x1conv=True, strides=2))
+            else:
+                blk.append(Residual(out_channels, out_channels))
+        return nn.Sequential(*blk)
+
+    # 该模型使用了更小的卷积核、步长和填充，而且删除了最大汇聚层
+    net = nn.Sequential(
+        nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU())
+    net.add_module("resnet_block1", resnet_block(64, 64, 2, first_block=True))
+    net.add_module("resnet_block2", resnet_block(64, 128, 2))
+    net.add_module("resnet_block3", resnet_block(128, 256, 2))
+    net.add_module("resnet_block4", resnet_block(256, 512, 2))
+    net.add_module("global_avg_pool", nn.AdaptiveAvgPool2d((1, 1)))
+    net.add_module("fc", nn.Sequential(nn.Flatten(), nn.Linear(512, num_classes)))
+    return net
+
+
+DATA_HUB = dict()
+DATA_URL = 'http://d2l-data.s3-accelerate.amazonaws.com/'
+
+DATA_HUB['hotdog'] = (DATA_URL + 'hotdog.zip', 'fba480ffa8aa7e0febbb511d181409f899b9baa5')
+
+
