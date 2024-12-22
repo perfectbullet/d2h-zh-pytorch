@@ -80,7 +80,10 @@ def train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs, devices=ut
         ylim=[0, 1],
         legend=['train loss', 'train acc', 'test acc']
     )
-    net = nn.DataParallel(net, device_ids=devices).to(devices[0])
+    if len(devices) > 1:
+        net = nn.DataParallel(net, device_ids=devices).to(devices[0])
+    else:
+        net = net.to(devices[0])
     for epoch in range(num_epochs):
         # 4个维度：储存训练损失，训练准确度，实例数，特点数
         metric = utils.Accumulator(4)
