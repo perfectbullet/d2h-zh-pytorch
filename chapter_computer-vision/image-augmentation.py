@@ -34,7 +34,7 @@ def apply(img, aug, num_rows=2, num_cols=4, scale=1.5):
 # apply(img, augs)
 
 
-# all_images = torchvision.datasets.CIFAR10(train=True, root="../data", download=True)
+all_images = torchvision.datasets.CIFAR10(train=True, root="../data", download=True)
 # utils.show_images([all_images[i][0] for i in range(32)], 4, 8, scale=0.8)
 
 train_augs = torchvision.transforms.Compose([
@@ -51,23 +51,6 @@ def load_cifar10(is_train, augs, batch_size):
     return dataloader
 
 
-def train_batch_ch13(net, X, y, loss, trainer, devices):
-    """用多GPU进行小批量训练"""
-    if isinstance(X, list):
-        # 微调BERT中所需
-        X = [x.to(devices[0]) for x in X]
-    else:
-        X = X.to(devices[0])
-    y = y.to(devices[0])
-    net.train()
-    trainer.zero_grad()
-    pred = net(X)
-    l = loss(pred, y)
-    l.sum().backward()
-    trainer.step()
-    train_loss_sum = l.sum()
-    train_acc_sum = utils.accuracy(pred, y)
-    return train_loss_sum, train_acc_sum
 
 
 def train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs, devices=utils.try_all_gpus()):
@@ -89,7 +72,7 @@ def train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs, devices=ut
         metric = utils.Accumulator(4)
         for i, (features, labels) in enumerate(train_iter):
             timer.start()
-            l, acc = train_batch_ch13(
+            l, acc = utils.train_batch_ch13(
                 net, features, labels, loss, trainer, devices)
             metric.add(l, acc, labels.shape[0], labels.numel())
             timer.stop()

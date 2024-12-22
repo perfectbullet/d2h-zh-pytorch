@@ -2,7 +2,9 @@ import collections
 import hashlib
 import os
 import re
+import tarfile
 import time
+import zipfile
 from os.path import join, dirname, abspath
 
 import numpy as np
@@ -15,6 +17,7 @@ from torchvision import datasets
 from torchvision.transforms import ToTensor
 from torchvision import transforms
 from torch.nn import functional as F
+
 
 def load_data_fashion_mnist(batch_size: int = 64, resize=None) -> tuple[DataLoader, DataLoader]:
     # Create data loaders.
@@ -335,7 +338,8 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
         test_acc = evaluate_accuracy_gpu(net, test_iter)
         animator.add(epoch, (avg_train_loss, train_accuracy, test_acc))
         timer.stop()
-        print('epoch {}, train_loss {}, train_acc is {}, test_acc {}'.format(epoch, avg_train_loss, train_accuracy, test_acc))
+        print('epoch {}, train_loss {}, train_acc is {}, test_acc {}'.format(epoch, avg_train_loss, train_accuracy,
+                                                                             test_acc))
     print(f'loss {avg_train_loss:.3f}, train acc {train_accuracy:.3f}, test acc {test_acc:.3f}')
     print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec on {str(device)}')
 
@@ -349,7 +353,6 @@ def set_figsize(figsize=(3.5, 2.5)):
 def try_all_gpus():
     devices = [torch.device('cuda:{}'.format(i)) for i in range(torch.cuda.device_count())]
     return devices
-
 
 
 class Residual(nn.Module):
@@ -410,7 +413,6 @@ DATA_URL = 'http://d2l-data.s3-accelerate.amazonaws.com/'
 DATA_HUB['hotdog'] = (DATA_URL + 'hotdog.zip', 'fba480ffa8aa7e0febbb511d181409f899b9baa5')
 
 
-
 def download(name, cache_dir=os.path.join('..', 'data')):
     """下载一个DATA_HUB中的文件，返回本地文件名
 
@@ -436,7 +438,7 @@ def download(name, cache_dir=os.path.join('..', 'data')):
     return fname
 
 
-def tokenize(lines, token='word'):  #@save
+def tokenize(lines, token='word'):  # @save
     """将文本行拆分为单词或字符词元"""
     if token == 'word':
         return [line.split() for line in lines]
@@ -446,9 +448,9 @@ def tokenize(lines, token='word'):  #@save
         print('错误：未知词元类型：' + token)
 
 
-
-class Vocab:  #@save
+class Vocab:  # @save
     """文本词表"""
+
     def __init__(self, tokens=None, min_freq=0, reserved_tokens=None):
         if tokens is None:
             tokens = []
@@ -491,7 +493,7 @@ class Vocab:  #@save
         return self._token_freqs
 
 
-def count_corpus(tokens):  #@save
+def count_corpus(tokens):  # @save
     """统计词元的频率"""
     # 这里的tokens是1D列表或2D列表
     if len(tokens) == 0 or isinstance(tokens[0], list):
@@ -500,14 +502,14 @@ def count_corpus(tokens):  #@save
     return collections.Counter(tokens)
 
 
-def read_time_machine():  #@save
+def read_time_machine():  # @save
     """将时间机器数据集加载到文本行的列表中"""
     with open(download('time_machine'), 'r') as f:
         lines = f.readlines()
     return [re.sub('[^A-Za-z]+', ' ', line).strip().lower() for line in lines]
 
 
-def load_corpus_time_machine(max_tokens=-1):  #@save
+def load_corpus_time_machine(max_tokens=-1):  # @save
     """返回时光机器数据集的词元索引列表和词表"""
     lines = read_time_machine()
     tokens = tokenize(lines, 'char')
@@ -519,3 +521,81 @@ def load_corpus_time_machine(max_tokens=-1):  #@save
         corpus = corpus[:max_tokens]
     return corpus, vocab
 
+
+def download_extract(name, folder=None):
+    """下载并解压zip/tar文件
+
+    Defined in :numref:`sec_kaggle_house`"""
+    fname = download(name)
+    base_dir = os.path.dirname(fname)
+    data_dir, ext = os.path.splitext(fname)
+    if ext == '.zip':
+        fp = zipfile.ZipFile(fname, 'r')
+    elif ext in ('.tar', '.gz'):
+        fp = tarfile.open(fname, 'r')
+    else:
+        assert False, '只有zip/tar文件可以被解压缩'
+    fp.extractall(base_dir)
+    return os.path.join(base_dir, folder) if folder else data_dir
+
+
+# @save
+DATA_HUB['hotdog'] = (DATA_URL + 'hotdog.zip', 'fba480ffa8aa7e0febbb511d181409f899b9baa5')
+
+
+def train_batch_ch13(net, X, y, loss, trainer, devices):
+    """用多GPU进行小批量训练"""
+    if isinstance(X, list):
+        # 微调BERT中所需
+        X = [x.to(devices[0]) for x in X]
+    else:
+        X = X.to(devices[0])
+    y = y.to(devices[0])
+    net.train()
+    trainer.zero_grad()
+    pred = net(X)
+    l = loss(pred, y)
+    l.sum().backward()
+    trainer.step()
+    train_loss_sum = l.sum()
+    train_acc_sum = accuracy(pred, y)
+    return train_loss_sum, train_acc_sum
+
+
+def train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs, devices=try_all_gpus()):
+    """用多GPU进行模型训练"""
+    timer = Timer()
+    num_batches = len(train_iter)
+    animator = Animator(
+        xlabel='epoch',
+        xlim=[1, num_epochs],
+        ylim=[0, 1],
+        legend=['train loss', 'train acc', 'test acc']
+    )
+    if len(devices) > 1:
+        net = nn.DataParallel(net, device_ids=devices).to(devices[0])
+    else:
+        net = net.to(devices[0])
+    for epoch in range(num_epochs):
+        # 4个维度：储存训练损失，训练准确度，实例数，特点数
+        metric = Accumulator(4)
+        for i, (features, labels) in enumerate(train_iter):
+            timer.start()
+            l, acc = train_batch_ch13(
+                net, features, labels, loss, trainer, devices)
+            metric.add(l, acc, labels.shape[0], labels.numel())
+            timer.stop()
+            if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:
+                animator.add(epoch + (i + 1) / num_batches,
+                             (metric[0] / metric[2], metric[1] / metric[3],
+                              None))
+        avg_train_loss = metric[0] / metric[2]
+        train_accuracy = metric[1] / metric[2]
+        test_acc = evaluate_accuracy_gpu(net, test_iter)
+        animator.add(epoch + 1, (None, None, test_acc))
+        print('epoch {}, train_loss {}, train_acc is {}, test_acc {}'.format(epoch, avg_train_loss, train_accuracy,
+                                                                             test_acc))
+    print(f'loss {metric[0] / metric[2]:.3f}, train acc '
+          f'{metric[1] / metric[3]:.3f}, test acc {test_acc:.3f}')
+    print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec on '
+          f'{str(devices)}')
