@@ -6,6 +6,7 @@ import tarfile
 import time
 import zipfile
 from os.path import join, dirname, abspath
+from random import random
 
 import numpy as np
 import pandas as pd
@@ -702,3 +703,66 @@ def load_data_bananas(batch_size):
     val_iter = torch.utils.data.DataLoader(BananasDataset(is_train=False),
                                            batch_size)
     return train_iter, val_iter
+
+
+
+def seq_data_iter_random(corpus, batch_size, num_steps):  #@save
+    """使用随机抽样生成一个小批量子序列"""
+    # 从随机偏移量开始对序列进行分区，随机范围包括num_steps-1
+    corpus = corpus[random.randint(0, num_steps - 1):]
+    # 减去1，是因为我们需要考虑标签
+    num_subseqs = (len(corpus) - 1) // num_steps
+    # 长度为num_steps的子序列的起始索引
+    initial_indices = list(range(0, num_subseqs * num_steps, num_steps))
+    # 在随机抽样的迭代过程中，
+    # 来自两个相邻的、随机的、小批量中的子序列不一定在原始序列上相邻
+    random.shuffle(initial_indices)
+
+    def data(pos):
+        # 返回从pos位置开始的长度为num_steps的序列
+        return corpus[pos: pos + num_steps]
+
+    num_batches = num_subseqs // batch_size
+    for i in range(0, batch_size * num_batches, batch_size):
+        # 在这里，initial_indices包含子序列的随机起始索引
+        initial_indices_per_batch = initial_indices[i: i + batch_size]
+        X = [data(j) for j in initial_indices_per_batch]
+        Y = [data(j + 1) for j in initial_indices_per_batch]
+        yield np.array(X), np.array(Y)
+
+
+def seq_data_iter_sequential(corpus, batch_size, num_steps):  #@save
+    """使用顺序分区生成一个小批量子序列"""
+    # 从随机偏移量开始划分序列
+    offset = random.randint(0, num_steps)
+    num_tokens = ((len(corpus) - offset - 1) // batch_size) * batch_size
+    Xs = np.array(corpus[offset: offset + num_tokens])
+    Ys = np.array(corpus[offset + 1: offset + 1 + num_tokens])
+    Xs, Ys = Xs.reshape(batch_size, -1), Ys.reshape(batch_size, -1)
+    num_batches = Xs.shape[1] // num_steps
+    for i in range(0, num_steps * num_batches, num_steps):
+        X = Xs[:, i: i + num_steps]
+        Y = Ys[:, i: i + num_steps]
+        yield X, Y
+
+class SeqDataLoader:  #@save
+    """加载序列数据的迭代器"""
+    def __init__(self, batch_size, num_steps, use_random_iter, max_tokens):
+        if use_random_iter:
+            self.data_iter_fn = seq_data_iter_random
+        else:
+            self.data_iter_fn = seq_data_iter_sequential
+        self.corpus, self.vocab = load_corpus_time_machine(max_tokens)
+        self.batch_size, self.num_steps = batch_size, num_steps
+
+    def __iter__(self):
+        return self.data_iter_fn(self.corpus, self.batch_size, self.num_steps)
+
+DATA_HUB['time_machine'] = (DATA_URL + 'timemachine.txt', '090b5e7e70c295757f55df93cb0a180b9691891a')
+
+def load_data_time_machine(batch_size, num_steps,  #@save
+                           use_random_iter=False, max_tokens=10000):
+    """返回时光机器数据集的迭代器和词表"""
+    data_iter = SeqDataLoader(
+        batch_size, num_steps, use_random_iter, max_tokens)
+    return data_iter, data_iter.vocab
