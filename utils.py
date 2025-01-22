@@ -731,19 +731,23 @@ def seq_data_iter_random(corpus, batch_size, num_steps):  #@save
         yield np.array(X), np.array(Y)
 
 
-def seq_data_iter_sequential(corpus, batch_size, num_steps):  #@save
-    """使用顺序分区生成一个小批量子序列"""
+
+def seq_data_iter_sequential(corpus, batch_size, num_steps):
+    """使用顺序分区生成一个小批量子序列
+
+    Defined in :numref:`sec_language_model`"""
     # 从随机偏移量开始划分序列
-    offset = random.randint(0, num_steps)
+    offset = 18
     num_tokens = ((len(corpus) - offset - 1) // batch_size) * batch_size
-    Xs = np.array(corpus[offset: offset + num_tokens])
-    Ys = np.array(corpus[offset + 1: offset + 1 + num_tokens])
+    Xs = torch.tensor(corpus[offset: offset + num_tokens])
+    Ys = torch.tensor(corpus[offset + 1: offset + 1 + num_tokens])
     Xs, Ys = Xs.reshape(batch_size, -1), Ys.reshape(batch_size, -1)
     num_batches = Xs.shape[1] // num_steps
     for i in range(0, num_steps * num_batches, num_steps):
         X = Xs[:, i: i + num_steps]
         Y = Ys[:, i: i + num_steps]
         yield X, Y
+
 
 class SeqDataLoader:  #@save
     """加载序列数据的迭代器"""
@@ -766,3 +770,13 @@ def load_data_time_machine(batch_size, num_steps,  #@save
     data_iter = SeqDataLoader(
         batch_size, num_steps, use_random_iter, max_tokens)
     return data_iter, data_iter.vocab
+
+def sgd(params, lr, batch_size):
+    """小批量随机梯度下降
+
+        Defined in :numref:`sec_linear_scratch`"""
+    with torch.no_grad():
+        for p in params:
+            p -= lr * p.grad / batch_size
+            p.grad.zero_()
+
