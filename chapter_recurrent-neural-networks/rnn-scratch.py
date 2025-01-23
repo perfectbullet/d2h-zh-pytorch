@@ -5,7 +5,7 @@ from torch.nn import functional as F
 import utils
 
 batch_size = 32
-num_steps = 35
+num_steps = 64
 train_iter, vocab = utils.load_data_time_machine(batch_size, num_steps)
 
 # 独热编码
