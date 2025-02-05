@@ -9,11 +9,11 @@ num_steps = 64
 train_iter, vocab = utils.load_data_time_machine(batch_size, num_steps)
 
 # 独热编码
-t = F.one_hot(torch.tensor([0, 2]), len(vocab))
-#  我们经常转换输入的维度，以便获得形状为 （时间步数，批量大小，词表大小）的输出
-X = torch.arange(10).reshape((2, 5))
-t2 = F.one_hot(X.T, 28).shape
-print(t2)
+# t = F.one_hot(torch.tensor([0, 2]), len(vocab))
+# #  我们经常转换输入的维度，以便获得形状为 （时间步数，批量大小，词表大小）的输出
+# X = torch.arange(10).reshape((2, 5))
+# t2 = F.one_hot(X.T, 28).shape
+# print(t2)
 
 
 def get_params(vocab_size, num_hiddens, device):
@@ -85,30 +85,13 @@ net = RNNModelScratch(
     forward_fn=rnn
 )
 
-state = net.begin_state(X.shape[0], utils.try_gpu())
-print('init state:', state)
-Y, new_state = net(X.to(utils.try_gpu()), state)
-print(Y.shape, len(new_state), new_state[0].shape)
+# state = net.begin_state(X.shape[0], utils.try_gpu())
+# print('init state:', state)
+# Y, new_state = net(X.to(utils.try_gpu()), state)
+# print(Y.shape, len(new_state), new_state[0].shape)
 # 我们可以看到输出形状是（时间步数批量大小，词表大小）
 # 而隐状态形状保持不变，即（批量大小，隐藏单元数）
 
-
-# 让我们首先定义预测函数来生成prefix之后的新字符， 其中的prefix是一个用户提供的包含多个字符的字符串。
-# 在循环遍历prefix中的开始字符时， 我们不断地将隐状态传递到下一个时间步，但是不生成任何输出。
-# 这被称为预热（warm-up）期， 因为在此期间模型会自我更新（例如，更新隐状态）， 但不会进行预测。
-# 预热期结束后，隐状态的值通常比刚开始的初始值更适合预测， 从而预测字符并输出它们。
-# def predict_ch8(prefix, num_preds, net, vocab, device):  #@save
-#     """在prefix后面生成新字符"""
-#     state = net.begin_state(batch_size=1, device=device)
-#     outputs = [vocab[prefix[0]]]
-#     get_input = lambda: torch.tensor([outputs[-1]], device=device).reshape((1, 1))
-#     for y in prefix[1:]:  # 预热期
-#         _, state = net(get_input(), state)
-#         outputs.append(vocab[y])
-#     for _ in range(num_preds):  # 预测num_preds步
-#         y, state = net(get_input(), state)
-#         outputs.append(int(y.argmax(dim=1).reshape(1)))
-#     return ''.join([vocab.idx_to_token[i] for i in outputs])
 
 # Copy to clipboard
 def predict_ch8(prefix, num_preds, net, vocab, device):
@@ -150,14 +133,14 @@ def train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter):
         if state is None or use_random_iter:
             # 在第一次迭代或使用随机抽样时初始化state
             state = net.begin_state(batch_size=X.shape[0], device=device)
-        else:
-            if isinstance(net, nn.Module) and not isinstance(state, tuple):
-                # state对于nn.GRU是个张量
-                state.detach_()
-            else:
-                # state对于nn.LSTM或对于我们从零开始实现的模型是个元组
-                for s in state:
-                    s.detach_()
+        # else:
+        #     if isinstance(net, nn.Module) and not isinstance(state, tuple):
+        #         # state对于nn.GRU是个张量
+        #         state.detach_()
+        #     else:
+        #         # state对于nn.LSTM或对于我们从零开始实现的模型是个元组
+        #         for s in state:
+        #             s.detach_()
         y = Y.T.reshape(-1)
         X, y = X.to(device), y.to(device)
         y_hat, state = net(X, state)
