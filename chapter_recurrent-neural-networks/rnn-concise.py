@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from d2l import torch as d2l
+import utils
 
 
 def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
@@ -10,17 +10,17 @@ def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
 
     Defined in :numref:`sec_rnn_scratch`"""
     loss = nn.CrossEntropyLoss()
-    animator = d2l.Animator(xlabel='epoch', ylabel='perplexity',
+    animator = utils.Animator(xlabel='epoch', ylabel='perplexity',
                             legend=['train'], xlim=[10, num_epochs])
     # 初始化
     if isinstance(net, nn.Module):
         updater = torch.optim.SGD(net.parameters(), lr)
     else:
-        updater = lambda batch_size: d2l.sgd(net.params, lr, batch_size)
-    predict = lambda prefix: d2l.predict_ch8(prefix, 50, net, vocab, device)
+        updater = lambda batch_size: utils.sgd(net.params, lr, batch_size)
+    predict = lambda prefix: utils.predict_ch8(prefix, 50, net, vocab, device)
     # 训练和预测
     for epoch in range(num_epochs):
-        ppl, speed = d2l.train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter)
+        ppl, speed = utils.train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter)
         if (epoch + 1) % 10 == 0:
             print(predict('time traveller'))
             animator.add(epoch + 1, [ppl])
@@ -74,7 +74,7 @@ class RNNModel(nn.Module):
 
 if __name__ == '__main__':
     batch_size, num_steps = 32, 35
-    train_iter, vocab = d2l.load_data_time_machine(batch_size, num_steps)
+    train_iter, vocab = utils.load_data_time_machine(batch_size, num_steps)
 
     # 定义模型
     # 初始化模型参数
@@ -91,12 +91,12 @@ if __name__ == '__main__':
     # print(Y.shape, state_new.shape)
     # torch.Size([35, 32, 256]) torch.Size([1, 32, 256])
 
-    device = d2l.try_gpu()
+    device = utils.try_gpu()
     net = RNNModel(rnn_layer, vocab_size=len(vocab))
     net = net.to(device)
-    # predict_test = d2l.predict_ch8('time traveller', 10, net, vocab, device)
+    # predict_test = utils.predict_ch8('time traveller', 10, net, vocab, device)
     # print(f'predict_test is {predict_test}')
 
     # 训练与预测
     num_epochs, lr = 500, 1
-    d2l.train_ch8(net, train_iter, vocab, lr, num_epochs, device)
+    utils.train_ch8(net, train_iter, vocab, lr, num_epochs, device)

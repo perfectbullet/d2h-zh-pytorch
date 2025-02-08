@@ -1,11 +1,13 @@
 import collections
 import hashlib
+import math
 import os
 import re
 import tarfile
 import time
 import zipfile
 from os.path import join, dirname, abspath
+from random import random
 
 import numpy as np
 import pandas as pd
@@ -702,3 +704,166 @@ def load_data_bananas(batch_size):
     val_iter = torch.utils.data.DataLoader(BananasDataset(is_train=False),
                                            batch_size)
     return train_iter, val_iter
+
+
+
+def seq_data_iter_random(corpus, batch_size, num_steps):  #@save
+    """使用随机抽样生成一个小批量子序列"""
+    # 从随机偏移量开始对序列进行分区，随机范围包括num_steps-1
+    corpus = corpus[random.randint(0, num_steps - 1):]
+    # 减去1，是因为我们需要考虑标签
+    num_subseqs = (len(corpus) - 1) // num_steps
+    # 长度为num_steps的子序列的起始索引
+    initial_indices = list(range(0, num_subseqs * num_steps, num_steps))
+    # 在随机抽样的迭代过程中，
+    # 来自两个相邻的、随机的、小批量中的子序列不一定在原始序列上相邻
+    random.shuffle(initial_indices)
+
+    def data(pos):
+        # 返回从pos位置开始的长度为num_steps的序列
+        return corpus[pos: pos + num_steps]
+
+    num_batches = num_subseqs // batch_size
+    for i in range(0, batch_size * num_batches, batch_size):
+        # 在这里，initial_indices包含子序列的随机起始索引
+        initial_indices_per_batch = initial_indices[i: i + batch_size]
+        X = [data(j) for j in initial_indices_per_batch]
+        Y = [data(j + 1) for j in initial_indices_per_batch]
+        yield np.array(X), np.array(Y)
+
+
+
+def seq_data_iter_sequential(corpus, batch_size, num_steps):
+    """使用顺序分区生成一个小批量子序列
+
+    Defined in :numref:`sec_language_model`"""
+    # 从随机偏移量开始划分序列
+    offset = 18
+    num_tokens = ((len(corpus) - offset - 1) // batch_size) * batch_size
+    Xs = torch.tensor(corpus[offset: offset + num_tokens])
+    Ys = torch.tensor(corpus[offset + 1: offset + 1 + num_tokens])
+    Xs, Ys = Xs.reshape(batch_size, -1), Ys.reshape(batch_size, -1)
+    num_batches = Xs.shape[1] // num_steps
+    for i in range(0, num_steps * num_batches, num_steps):
+        X = Xs[:, i: i + num_steps]
+        Y = Ys[:, i: i + num_steps]
+        yield X, Y
+
+
+class SeqDataLoader:  #@save
+    """加载序列数据的迭代器"""
+    def __init__(self, batch_size, num_steps, use_random_iter, max_tokens):
+        if use_random_iter:
+            self.data_iter_fn = seq_data_iter_random
+        else:
+            self.data_iter_fn = seq_data_iter_sequential
+        self.corpus, self.vocab = load_corpus_time_machine(max_tokens)
+        self.batch_size, self.num_steps = batch_size, num_steps
+
+    def __iter__(self):
+        return self.data_iter_fn(self.corpus, self.batch_size, self.num_steps)
+
+DATA_HUB['time_machine'] = (DATA_URL + 'timemachine.txt', '090b5e7e70c295757f55df93cb0a180b9691891a')
+
+def load_data_time_machine(batch_size, num_steps,  #@save
+                           use_random_iter=False, max_tokens=10000):
+    """返回时光机器数据集的迭代器和词表"""
+    data_iter = SeqDataLoader(
+        batch_size, num_steps, use_random_iter, max_tokens)
+    return data_iter, data_iter.vocab
+
+def sgd(params, lr, batch_size):
+    """小批量随机梯度下降
+
+        Defined in :numref:`sec_linear_scratch`"""
+    with torch.no_grad():
+        for p in params:
+            p -= lr * p.grad / batch_size
+            p.grad.zero_()
+
+
+def train_ch8(net, train_iter, vocab, lr, num_epochs, device, use_random_iter=False):
+    """ 训练模型（定义见第8章）"""
+    loss = nn.CrossEntropyLoss()
+    animator = Animator(xlabel='epoch', ylabel='perplexity', legend=['train'], xlim=[10, num_epochs])
+    # 初始化
+    if isinstance(net, nn.Module):
+        optimizer = torch.optim.SGD(net.parameters(), lr)
+    else:
+        optimizer = lambda batch_size: sgd(net.params, lr, batch_size)
+    predict = lambda prefix: predict_ch8(prefix, 50, net, vocab, device)
+    # 训练和预测
+    for epoch in range(1, num_epochs):
+        ppl, speed = train_epoch_ch8(net, train_iter, loss, optimizer, device, use_random_iter)
+        if epoch % 10 == 0:
+            print(predict('time traveller'))
+            animator.add(epoch, [ppl])
+    print(f'困惑度 {ppl:.1f}, {speed:.1f} 词元/秒 {str(device)}')
+    print(predict('time traveller'))
+    print(predict('traveller'))
+
+
+def train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter):
+    """训练网络一个迭代周期（定义见第8章）"""
+    state, timer = None, Timer()
+    metric = Accumulator(2)  # 训练损失之和,词元数量
+    for X, Y in train_iter:
+        if state is None or use_random_iter:
+            # 在第一次迭代或使用随机抽样时初始化state
+            state = net.begin_state(batch_size=X.shape[0], device=device)
+        else:
+            if isinstance(net, nn.Module) and not isinstance(state, tuple):
+                # state对于nn.GRU是个张量
+                state.detach_()
+            else:
+                # state对于nn.LSTM或对于我们从零开始实现的模型是个元组
+                for s in state:
+                    s.detach_()
+        y = Y.T.reshape(-1)
+        X, y = X.to(device), y.to(device)
+        y_hat, state = net(X, state)
+        l = loss(y_hat, y.long()).mean()
+        if isinstance(net, nn.Module):
+            updater.zero_grad()
+            l.backward()
+            grad_clipping(net, 1)
+            updater.step()
+        else:
+            l.backward()
+            grad_clipping(net, 1)
+            # 因为已经调用了mean函数
+            updater(batch_size=1)
+        metric.add(l * y.numel(), y.numel())
+    return math.exp(metric[0] / metric[1]), metric[1] / timer.stop()
+
+
+# Copy to clipboard
+def predict_ch8(prefix, num_preds, net, vocab, device):
+    # 在prefix后面生成新字符
+    state = net.begin_state(batch_size=1, device=device)
+    # outputs 是字母的索引列表
+    outputs = [vocab[prefix[0]]]
+    get_input = lambda: torch.tensor([outputs[-1]], device=device).reshape((1, 1))
+    # 预热期
+    for y in prefix[1:]:
+        input_a = get_input()
+        y_no_use, state = net(input_a, state)
+        outputs.append(vocab[y])
+    # 预测num_preds步
+    for _ in range(num_preds):
+        input_b = get_input()
+        y_pred, state = net(input_b, state)
+        outputs.append(int(y_pred.argmax(dim=1).reshape(1)))
+    pred_list = [vocab.idx_to_token[i] for i in outputs]
+    return ''.join(pred_list)
+
+def grad_clipping(net, theta):  #@save
+    """裁剪梯度"""
+    if isinstance(net, nn.Module):
+        params = [p for p in net.parameters() if p.requires_grad]
+    else:
+        params = net.params
+    norm = torch.sqrt(sum(torch.sum((p.grad ** 2)) for p in params))
+    if norm > theta:
+        for param in params:
+            param.grad[:] *= theta / norm
